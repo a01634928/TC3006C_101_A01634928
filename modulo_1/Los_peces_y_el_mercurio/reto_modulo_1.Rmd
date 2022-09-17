@@ -1,0 +1,336 @@
+---
+title: "Construcción de un modelo estadístico base"
+author: "Jesús David Núñez Rodríguez A01634928"
+date: "2022-09-09"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+#### Descripción del problema:
+
+Detectar los factores que afectan el nivel de contaminación por mercurio
+en los peces de agua dulce comestibles. Los datos recolectados son de un
+estudio realizado en 53 lagos de florida.
+
+#### Preguntas a responder: 
+¿Hay evidencia para suponer que la concentración máxima de mercurio en los lagos es dañino para la salud humana? 
+  
+¿Habrá diferencia significativa entre la concentración de mercurio por la edad de los peces?
+  
+Si el muestreo se realizó lanzando una red y analizando los peces que la red encontraba ¿Habrá influencia del número de peces encontrados en la concentración de mercurio en los peces?  
+  
+¿Las concentraciones de alcalinidad, clorofila, calcio en el agua del lago influyen en la concentración de mercurio de los peces?
+  
+#### Consideraciones
+Las normativas de referencia para evaluar los niveles máximos de Hg (Reglamento 34687-MAG y los reglamentos internacionales CE 1881/2006 y Codex Standard 193-1995) establecen que la concentración promedio de mercurio en productos de la pesca no debe superar los 0.5 mg de Hg/kg.
+
+### Introdución  
+Hay evidencia de que tiene efectos adversos en la salud de los humanos, especialmente en el desarrollo neuronal en fetos y algunos organos como higado y riñon(Li et al. 2010). Los grupos más suceptibles de intoxicación por mercurio son fetos en desarrollo, mujeres que amamanten y niños pequeños. además hay evidencia que en adultos también tiene efectos neurotoxicos y afecta al sistema inmune y cardiovascular, el consumo de MeHg incluso en pequeñas cantidades es dañino si se está expuesto durante periodos prolongados de tiempo(USEPA 2013).
+
+
+
+### Etapa de exploración  
+```{r}
+df=read.csv('mercurio.csv')
+head(df)
+```
+
+El tamaño del dataframe es de 53 filas con 12 variables, de las cuales
+la variable dependiente es X7, Variables que sirven de identificador
+X1, X2 y finalmente el resto de variables son independientes(se validará más adelante si efectivamente son independientes).
+
+Descripción de variables(nombre, descripción, tipo de variable):
+
+X1 = número de indentificación, variable cuantitativa discreta\
+X2 = nombre del lago, variable cualitativa nominal\
+X3 = alcalinidad (mg/l de carbonato de calcio), variable cuantitativa
+continua\
+X4 = PH, variable cuantitativa continua\
+X5 = calcio (mg/l), variable cuantitativa continua  
+X6 = clorofila
+(mg/l), variable cuantitativa continua\
+X7 = concentración media de mercurio (parte por millón) en el tejido
+muscular del grupo de peces estudiados en cada lago, variable
+cuantitativa continua\
+X8 = número de peces estudiados en el lago, variable cuantitativa
+continua\
+X9 = mínimo de la concentración de mercurio en cada grupo de peces,
+variable cuantitativa continua\
+X10 = máximo de la concentración de mercurio en cada grupo de peces,
+variable cuantitativa continua\
+X11 = estimación (mediante regresión) de la concentración de mercurio en
+el pez de 3 años (o promedio de mercurio cuando la edad no está
+disponible), variable cuantitativa continua\
+X12 = indicador de la edad de los peces (0: jóvenes; 1: maduros),
+variable cuantitativa discreta  
+  
+#### Descripción de los datos.
+```{r}
+#Obtener media, mediana, quartiles, ds, min y máx de las variables.
+summary(df)
+print(paste('sd:',round(apply(df[, !names(df) %in% c("X2")],2,'sd'),4)))
+table(df$X2)
+```
+Como se puede observar en la tabla de distribución de frecuencia de la variable cualitativa, solamente hay un registro por cada valor, por lo tanto no es relevante la moda de esta variable.  
+
+#### Matriz de correlación
+
+```{r}
+#Gráficar matriz de correlación
+suppressPackageStartupMessages(library("corrplot"))
+C <- cor(df[,c(-1,-2)])
+corrplot(C, method = 'number')
+```
+  
+Posterior a analizar la matriz de correlación, se identifica dependencia en algunas variables independientes, por lo que se eliminarán.  
+Se observa dependencia entre X9, X10, X11 y se tomará la variable X10. Pese a que no es la variable con la mayor correlación de las 3 respecto a la variable dependiente (X7), pero es escencial para reponder a la pregunta "¿Hay evidencia para suponer que la concentración máxima de mercurio en los lagos es dañino para la salud humana?" y ya que su correlación del 92% se tomará esta.  
+Tambien se observa dependencia entre la variable X3 y X4 por lo que se tomará X3 ya que es la que tiene mayor correlación con la variable dependiente(X7)
+Sumado a esto es importante notar con esta gráfica que la edad de los peces(X11) no tiene correlación con la concentración de mercurio en los peces(X7)
+
+
+
+
+```{r}
+#Graficar boxplots de variables cuantitativas continuas
+boxplot(df$X3, df$X5, df$X6, df$X7, df$X8, df$X10,
+main = "Boxplots de variables para exploración",
+names = c("X3", "X5", "X6", "X7", "X8", "X10"),
+las = 2,
+horizontal = TRUE,
+notch = FALSE
+)
+```
+
+
+
+Ya que las variables cuentan con escalas muy diferentes será necesario hacer un rescalamiento de los datos más adelante para poder analizarlos, pero primero se eliminarán los outliers.
+
+```{r}
+#drop outliers
+outliers <- boxplot(df$X5, plot=FALSE)$out
+df<- df[-which(df$X5 %in% outliers),]
+outliers <- boxplot(df$X6, plot=FALSE)$out
+df<- df[-which(df$X6 %in% outliers),]
+outliers <- boxplot(df$X8, plot=FALSE)$out
+df<- df[-which(df$X8 %in% outliers),]
+outliers <- boxplot(df$X9, plot=FALSE)$out
+df<- df[-which(df$X9 %in% outliers),]
+```
+
+Despues de eliminar outliers de las variables con mayor numero de los mismos siguen apareciendo outliers, esto debido a que la nueva dimensión de los datos es mucho menor.
+No se realizará un segundo filtro de outliers, ya que actualmente n se volvió de tamaño 34, disminuir el valor de n a un numero menor a 30 comprometería nuestro análisis.  
+
+
+```{r}
+suppressPackageStartupMessages(library(Hmisc))
+hist.data.frame(df[, !names(df) %in% c("X1", "X2","X4", "X7" ,"X9", "X11", "X12")])
+```
+
+Las variables X3, X5, X6 y X10 tienen sesgo positivo a la derecha. La variable X8 tiene sesgo negativo a la izquierda.
+  
+  
+#### Transformación por medio de Box-Cox
+```{r}
+suppressPackageStartupMessages(library(MASS))
+#se obtiene el valor de lamba que máximiza la función de verosimilitud para cada variable
+bc = boxcox((df$X3+1)~1)
+lam = bc$x[which.max(bc$y)]
+df$X3=((df$X3+1)^lam-1)/lam
+
+bc = boxcox((df$X5+1)~1)
+lam = bc$x[which.max(bc$y)]
+df$X5=((df$X5+1)^lam-1)/lam
+
+bc = boxcox((df$X6+1)~1)
+lam = bc$x[which.max(bc$y)]
+df$X6=((df$X6+1)^lam-1)/lam
+
+bc = boxcox((df$X8+1)~1)
+lam = bc$x[which.max(bc$y)]
+df$X8=((df$X8+1)^lam-1)/lam
+
+bc = boxcox((df$X10+1)~1)
+lam = bc$x[which.max(bc$y)]
+df$X10=((df$X10+1)^lam-1)/lam
+```
+```{r}
+suppressPackageStartupMessages(library(Hmisc))
+hist.data.frame(df[, !names(df) %in% c("X1", "X2","X4", "X7" ,"X9", "X11", "X12")])
+```
+
+Como se puede observar se ha reducido el sesgo de los datos, obteniendo una forma aparantemente normalizada, posterior se validará eso.  
+Ahora se realizará un escalamiento de los datos para que sean más comparables por medio del tipo de escalamiento Estandar-Max.
+```{r}
+#Escalamiento Estandar-Max
+df_cuantitative <- df[,c(-1,-2,-4,-9,-11)]
+#df_cuantitative <- df[, !names(df) %in% c("X1", "X2", "X12")]
+z_norm<-function(x){(x-mean(x))/sd(x)}
+df_secundary = as.data.frame(lapply(df_cuantitative,z_norm))
+df$X3 = df_secundary$X3
+df$X5 = df_secundary$X5
+df$X6 = df_secundary$X6
+df$X8 = df_secundary$X8
+df$X10 = df_secundary$X10
+```
+
+Como siguiente paso se realiza un reescalamiento
+```{r}
+#Graficar boxplots de variables reescaladas
+boxplot(df$X3, df$X5, df$X6, df$X8, df$X10,
+main = "Boxplots de variables reescaladas",
+names = c("X3", "X5", "X6", "X8", "X10"),
+las = 2,
+horizontal = TRUE,
+notch = FALSE
+)
+```
+
+### Modelo  
+Ahora que los datos están listos para ser análizados, se crearán los modelos para evaluar cuales factores son los relevantes para el problema.
+
+
+```{r}
+R=lm(X7~X3+X5+X6+X8+X10,data=df)
+summary(R)
+```
+En una primera instancia vemos como el p-value de X3, y X10 son los que se mantienen por debajo de 0.03 que será nuestro valor de alpha.  
+Ahora obtendremos cual es el mejor modelo en función de estas 5 variables.  
+Tenemos Hipotesis nula siendo:  
+$H2_0:\mu {X3}=\mu {X5}=\mu {X6}=\mu {X8}=\mu {X10}$  
+$H2_1:$ Alguna beta es diferente  
+La cual se rechaza ya que las betas si son siginificativamente diferentes.
+
+
+```{r}
+step(R,direction="both",trace=1)
+```
+Este fue el mejor modelo con las variables disponibles.
+Cabe señalar que la variable X8 (cantidad de peces estudiados) fue descartada del modelo más efectivo, incluso en el primer modelo donde se tomó en cuenta su p-value fue de 0.52 el cual es significativamente más grande que alpha(0.03).  
+$H2_0:$La cantidad de peces encontrados no tiene influencia en la concentración de mercurio en los peces.    
+$H2_1:$ La cantidad de peces encontrados tiene influencia en la concentración de mercurio en los peces.  
+No se rechaza $H2_0$ por lo que se concluye que el numero de peces encontrados no tiene correlación con la concentración de mercurio.  
+  
+
+```{r}
+R1=lm(X7~X3+X6+X10,data=df)
+S=summary(R1)
+S
+```
+
+A pesar de que la variable X6 no tiene correlación significativamente con la variable dependiente, es necesaria para mejorar la precisión del modelo de acuerdo con lo obtenido.  
+Así mismo se da respuesta a la pregunta: Las concentraciones de alcalinidad(X3), clorofila(X6), calcio(X5) en el agua del lago influyen en la concentración de mercurio de los peces? ya que el modelo nos valida que alcalinidad(X3) influye en la concentración de mercurio en los peces, sin embargo la clorofila(X6) y el calcio(X5) no influyen significativamente en la concentración de mercurio en los peces.
+
+
+```{r}
+#Se obtienen los intervalos de confianza
+confint(R1)
+```
+
+### Verificación de supuestos
+
+#### Normalidad
+
+```{r}
+E=R1$residuals
+Y=R1$fitted.values
+
+qqnorm(E)
+qqline(E,col="red")
+
+hist(E,col="lightcyan",freq=FALSE,main="Histograma de Residuos",ylim=c(0,6),xlab="",ylab="X7")
+lines(density(E),col="red")
+curve(dnorm(x,mean=mean(E),sd=sd(E)), add=TRUE, col="blue",lwd=2)
+
+shapiro.test(E)
+
+```
+Se puede concluir que los datos vienen de una fuente normal ya que los residuos cumplen con normalidad. En la prueba de normalidad se puede apreciar que los datos están distribuidos uniformemente alrededor de la pendiente, solamente en la cola inferior están un poco dispersos los datos, sin embargo no es significativo.  Seguido se observa que la distribución de los datos tiene forma de campana y por ultimo se confirma mediante la prueba de Shapiro-Wilk ya que el valor de p es superior a 0.3 que es el valor de alpha establecido.
+
+#### Homocedasticidad y modelo apropiado
+
+Gráfica Valores estimados vs Residuos
+
+```{r}
+plot(Y,E,ylab="Residuos",xlab="Valores estimados",pch=20,col="red")
+abline(h=0,col="red")
+text(Y[],E[],1:34,cex=0.8,pos=3,offset=0.2)
+```
+
+Se puede apreciar gráficamente homocedasticidad ya que los valores se encuentras dispersos uniformemente sin ningun patron significativo aparente.
+
+#### Independencia
+
+Errores vs Orden de observación
+
+```{r}
+n=length(df$X4)
+plot(c(1:n),R1$residuals,type="l",xlab="Orden de las observaciones",ylab="Residuos")
+abline(h=0,col="red")
+```
+
+De igual manera se puede confirmar que no hay dependencia.
+
+```{r}
+suppressPackageStartupMessages(library(dplyr))
+df$residuos_estandarizados <- rstudent(R1)  #Introduce una columna en D con los residuos del modelo estandarizados
+
+ggplot(data = df, aes(x = predict(R1), y = abs(residuos_estandarizados))) +
+  geom_hline(yintercept = 3, color = "red", linetype = "dashed") +
+  # se identifican en rojo observaciones con residuos estandarizados absolutos > 3
+  geom_point(aes(color = ifelse(abs(residuos_estandarizados) > 3, 'red', 'black'))) +
+  scale_color_identity() +
+  labs(title = "Distribución de los residuos estandarizados",x = "predicción modelo") + 
+  theme_bw() + theme(plot.title = element_text(hjust = 0.5))
+
+which(abs(df$residuos_estandarizados)>3)
+
+```
+
+En la gráfica anterior se observa que no hay datos atipicos en la predicción.  
+
+#### ¿Habrá diferencia significativa entre la concentración de mercurio por la edad de los peces?  
+De acuerdo con el análisis realizado se puede concluir tomando como referencia la tabla de correlacion que no hay evidencia suficiente para asumir que la concentración de mercurio en los peces(X7) varia conforme a la edad(X12). Para validar esto se muestra la siguiente gráfica.
+
+$H1_0:$ $\mu$concentración de mercurio(X7) de los peces viejos = $\mu$concentración de mercurio(X7) de los peces jovenes
+$H1_1:$ $\mu$concentración de mercurio(X7) de los peces viejos != $\mu$concentración de mercurio(X7) de los peces jovenes
+
+
+```{r}
+C<-aov(X7~as.factor(X12), data = df)
+summary(C)
+tapply(df$X7,df$X12,mean)
+mean(df$X7)
+boxplot(df$X7 ~ as.factor(df$X12), horizontal = TRUE)
+I = TukeyHSD(aov(X7 ~ as.factor(X12), data = df))
+I
+plot(I) #Los intervalos de confianza se observan mejor si se grafican
+```
+
+
+
+Como se puede observar no hay tendencia aparente además el f-value del modelo es significativamente mayor a alpha(0.03). Con lo cual se concluye que no se rechaza la hipotesis nula, los peces no presentan diferencia en la concentrción de mercurio. además de validarlo con el anova, se puede observar en la gráfica de intervalos de confianza de los peces jovenes vs peces viejos que sus valores de sus medias se sobreponen sobre el intervalo de confianza del otro.
+
+### Conclusión del análisis
+
+En conclusión el modelo obtenido es:
+X7 = X3*-0.06603 + X6*-0.02015 + X10*-0.16364 + 0.46706  
+
+La variabilidad explicada por el modelo (coeficiente de determinación) es: 0.8828  
+
+Significancia del modelo: Valor p del modelo es 4.593e-14  
+Esto nos deja ver que el valor p del modelo está muy por debajo de alpha siendo 0.03, por lo que es preciso.  
+El modelo satisface todos los supuestos, ya que sus residuos son normales, no hay sesgo aparente y tiene homocedasticidad.  
+Un factor importante para el desarrollo del modelo fue la preparación correcta de los datos, ya que se realizó limpieza de datos atipicos, transformación de Box-Cox para normalizar los datos y escalarlos por metodo desviación-máx para que los datos fueran comparables.
+
+
+### Referencias  
+Li P, Feng X, Qiu G (2010) Methylmercury exposure and health effects from rice and fish consumption: a review. Int J Environ Res Public Health 7:2666–2691. https://doi.org/10.3390/ijerph7062666  
+USEPA (2013) Mercury: health effects. Retrieved from: http://www.epa.gov/hg/effects.htm.  
+
+### Liga a código y documentos
+https://github.com/a01634928/TC3006C_101_A01634928/tree/main/modulo_1/Los_peces_y_el_mercurio
